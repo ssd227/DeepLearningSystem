@@ -1,0 +1,9 @@
+__pychche__
+*.so
+.pytest_cache
+
+*/build/*
+*/trash/*
+*/data/*
+/tmp/*
+*/.vscode/
