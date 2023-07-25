@@ -6,4 +6,5 @@ __pychche__
 */trash/*
 */data/*
 /tmp/*
-*/.vscode/
+*vscode*
+*__pycache__*
