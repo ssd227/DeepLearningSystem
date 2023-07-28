@@ -13,29 +13,24 @@
 ## content
 - [X] hw0
 - [X] hw1
-- [X] hw2 (logsumexp待整体处理) 
-- [X] hw3 (cuda 矩阵乘法加速待完成)
-- [X] hw4
+- [X] hw2 （ <adam的测试> 和 <最后的模型训练> 有点小问题。）
+- [X] hw3
+- [X] hw4 (还存在问题)
 - public_notebooks
 ---
 
 ## 一些问题
-hw2
-- [ ] logsumexp 数值稳定版本的ops，前向后向推导。为什么非得搞这个算子，使得又要手动推导公式。麻烦。
-- [ ] 为了实现logsumexp, 还需要实现tensor的 max、argmax ops来方便计算。后续可以拓展到pooling操作。
-- [ ] hw2里 <adam的测试> 和 <最后的模型训练> 有点小问题。logsumexp算子待完善
-
 hw4
 - [ ] bug1：测试需要补充一些（lstm 、rnn 的 input_fea_num, 瞎写都没有错误），实现过程中错写导致的问题无法通过测试暴露出来。
----
+- [ ] 最后几个测试的模型训练需要重写一遍，bug较多。
+- [ ] 优化版本的cuda matmul 在 !python3 -m pytest -l -v -k "nn_conv_forward" 会挂一个case
+- [ ] conv 实现再看看，前向过程简化为二维矩阵乘，后向过程还是一个卷积操作。pad、strides等操作极大增加公式复杂度。
 
-
-## todo hold
-
-hw4
-- [x] Bug：ndarray的矩阵乘，无法直接对多维度情况扩展 operator(@)
+整体
+- [ ] ndarray的矩阵乘，无法直接对多维度情况扩展 operator(@)
         需要更新ops里 matmul的操作（不整了，一堆bug, 代码复杂度还上去了）
-
+- [ ] ops.summation 不支持 keepdims
+- [ ] ops.max、ops.logsumexp 要求支持多轴操作就很恶心。（设计丑陋，容易出bug）
 ---
 ## 课程总结：
 1、作业设计打磨的不够充分，有时不能完全理解实现逻辑。
@@ -49,6 +44,7 @@ hw4
 - 卷积操作的矩阵乘实现
 - 底层cuda(gpu)、c++(cpu)端的代码实现与优化
 
+5、特别建议: 不要使用ipynb来debug，重载代码的问题，不确定性太多（痛苦）。
 
 ## 致谢
 天奇和Zico Kolter

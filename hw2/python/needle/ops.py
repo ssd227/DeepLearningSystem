@@ -391,15 +391,13 @@ def relu(a):
     return ReLU()(a)
 
 
-# todo 这ops没必要自己求导，直接用算子堆出一个nn模块不行吗？？（需要额外实现一个max算子）
-# todo: 不用算子实现，直接再nn里堆积木，需要添加max、argsmax 两个算子方便反向求梯度。
+# 最后实现参考hw4，logsumexp加限制（axis 为单轴或者None）
 class LogSumExp(TensorOp):
     def __init__(self, axes: Optional[tuple] = None):
         self.axes = axes
         if isinstance(axes, int):
             self.axes = (axes,)
         
-
     def compute(self, Z):
         ### BEGIN YOUR SOLUTION
         # print("z shape, axes", Z.shape, self.axes)
@@ -460,7 +458,7 @@ def logsumexp(a, axes=None):
     return LogSumExp(axes=axes)(a)
 
 
-# todo 有点难实现
+# 在hw4里完成了
 class Max(TensorOp):
     def __init__(self, axes: Optional[tuple] = None):
         self.axes = axes

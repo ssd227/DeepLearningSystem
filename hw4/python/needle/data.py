@@ -1,5 +1,3 @@
-import gzip
-import struct
 import numpy as np
 from .autograd import Tensor
 import os
@@ -96,7 +94,7 @@ class DataLoader:
             (default: ``1``).
         shuffle (bool, optional): set to ``True`` to have the data reshuffled
             at every epoch (default: ``False``).
-     """
+    """
     dataset: Dataset
     batch_size: Optional[int]
 
@@ -110,13 +108,10 @@ class DataLoader:
         self.dataset = dataset
         self.shuffle = shuffle
         self.batch_size = batch_size
-
         if not self.shuffle:
-            self.ordering = np.array_split(np.arange(len(dataset)),
-                range(batch_size, len(dataset), batch_size))
-        else:
-            self.ordering = np.array_split(np.random.permutation(len(self.dataset)),
-                range(batch_size, len(dataset), batch_size))
+            self.ordering = np.array_split(
+                np.arange(len(dataset)), range(batch_size, len(dataset), batch_size)
+            )
 
     def __iter__(self):
         ### BEGIN YOUR SOLUTION

@@ -29,32 +29,7 @@ def epoch_general_cifar10(dataloader, model, loss_fn=nn.SoftmaxLoss(), opt=None)
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    if opt:
-        model.train()
-    else:
-        model.eval()
- 
-    loss_list = []
-    all_N, pred_true_N = 0, 0
-
-    for imgs, label in dataloader:
-        X = imgs.reshape((imgs.shape[0],-1))
-        y = model(X)
-
-        loss = nn.SoftmaxLoss()(y, label)
-        loss_list.append(loss.numpy())
-
-        if opt:
-            opt.reset_grad()
-            loss.backward()
-            opt.step()
-
-        all_N += X.shape[0]
-        y_pred = np.argmax(y.numpy(), axis=1)
-        pred_true_N +=  np.sum(label.numpy() == y_pred)
-    
-    # output：avg_acc, avg_loss
-    return  pred_true_N/all_N, np.mean(loss_list)
+    raise NotImplementedError()
     ### END YOUR SOLUTION
 
 
@@ -78,19 +53,7 @@ def train_cifar10(model, dataloader, n_epochs=1, optimizer=ndl.optim.Adam,
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-    opt = optimizer(model.parameters(), lr=lr, weight_decay=weight_decay)
-
-    # training
-    accum_loss = 0
-    accum_acc = 0
-    for i in range(n_epochs):
-        print("epoch: ",i)
-        # training
-        train_avg_acc, train_avg_loss = epoch_general_cifar10(dataloader=dataloader, model=model, loss_fn=loss_fn, opt=opt)
-        print("train_avg_acc:{}, train_avg_loss:{}.".format(train_avg_loss, train_avg_loss))
-        accum_acc += train_avg_acc
-        accum_loss += train_avg_loss
-    return accum_acc/n_epochs, accum_loss/n_epochs
+    raise NotImplementedError()
     ### END YOUR SOLUTION
 
 
@@ -109,19 +72,14 @@ def evaluate_cifar10(model, dataloader, loss_fn=nn.SoftmaxLoss):
     """
     np.random.seed(4)
     ### BEGIN YOUR SOLUTION
-
-    # evaluate
-    avg_acc, avg_loss = epoch_general_cifar10(dataloader=dataloader, model=model, loss_fn=loss_fn)
-    print("eval_avg_acc:{}, eval_avg_loss:{}.".format(avg_loss, avg_loss))
-    
-    return avg_acc, avg_loss
+    raise NotImplementedError()
     ### END YOUR SOLUTION
 
 
 def batch_loss(logits: nn.Tensor, y: nn.Tensor):
     r, n = logits.shape
     zy = ndl.ops.summation(logits * nn.init.one_hot(n, y, device=logits.device),axes=1)
-    res = ndl.ops.summation(nn.ops.logsumexp(logits, (1,)) - zy)
+    res = ndl.ops.summation(ndl.ops.logsumexp(logits, (1,)) - zy) # 注意logsumexp调用
     return res
 
 ### PTB training ###

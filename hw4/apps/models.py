@@ -67,7 +67,7 @@ class LanguageModel(nn.Module):
         
         if seq_model == "rnn": 
             self.seq_model = nn.RNN(embedding_size, hidden_size, num_layers=num_layers, device=device, dtype=dtype)
-        elif seq_model is "lstm":
+        elif seq_model == "lstm":
             self.seq_model = nn.LSTM(embedding_size, hidden_size, num_layers=num_layers, device=device, dtype=dtype)
         else:
             self.seq_model = nn.LSTM(embedding_size, hidden_size, num_layers=num_layers, device=device, dtype=dtype)

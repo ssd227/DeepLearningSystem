@@ -253,7 +253,7 @@ class Reshape(TensorOp):
 def reshape(a, shape):
     return Reshape(shape)(a)
 
-# todo 注意：broadcast_to 只处理相同的维度，把1的那些轴转成其他
+# 注意：broadcast_to 只处理相同的维度，把1的那些轴转成其他
 # 然而test case里却并不是，ndarray的实现，限制了这个op的部分功能
 class BroadcastTo(TensorOp): 
     def __init__(self, shape):
@@ -323,7 +323,7 @@ def summation(a, axes=None):
     return Summation(axes)(a)
 
 
-# todo fix bug
+# 支持多维度矩阵乘，但是有很多连锁bug需要处理。
 # bug a@b 在下面的实现中会修改 a和b的值，导致在backword时，会产生 高维矩阵@ 高维矩阵 的情况
 #
 # class MatMul(TensorOp):
@@ -483,8 +483,69 @@ class ReLU(TensorOp):
 def relu(a):
     return ReLU()(a)
 
+# help func for class Max
+def calc_numpy_max_mask(axis, keepdims, npz):
+    """
+        使用numpy计算max mask
+        
+        使用numpy计算，逻辑上是正确的。但是由于是cpu计算，会拖慢整体计算速度。
+        先保证逻辑上的正确性吧。
+    """
+    npz_max = numpy.max(npz, axis=axis, keepdims=keepdims)
 
-# todo 这ops没必要自己求导，直接用算子堆出一个nn模块不行吗？？（需要额外实现一个max算子）
+    max_axes = axis
+    if axis is None:
+        max_axes = list(range(len(npz.shape)))
+    max_shape = list(npz.shape)
+    for ax in max_axes:
+        max_shape[ax] = 1
+                
+    if keepdims == False:
+        npz_max = npz_max.reshape(max_shape)
+
+    np_all_max =  numpy.broadcast_to(npz_max, npz.shape)
+
+    npmask =  numpy.float32(npz == np_all_max)
+    # 注意维度相同的两个max值需要均分
+    if axis == None:
+        npmask = npmask / numpy.sum(npmask, axis=axis)
+    else:
+        npmask /= numpy.sum(npmask, axis=axis, keepdims=True)
+    return npmask, max_shape
+
+class Max(TensorOp):
+    # 只支持None axis, 或者 axis为int
+    def __init__(self, axis: Optional[tuple] = None, keepdims=False):
+        self.axis = axis
+        self.keepdims = keepdims
+        if isinstance(axis, int):
+            self.axis = (axis,)
+        assert self.axis == None or len(self.axis)==1, "only support None or one int var for axis" 
+    
+    def compute(self, Z):
+        return Z.max(axis=self.axis, keepdims=self.keepdims)
+    
+    def gradient(self, out_grad, node):
+        Z = node.inputs[0].detach()
+        npmask, max_shape = calc_numpy_max_mask(self.axis, self.keepdims, Z.numpy())
+        mask_tensor = Tensor(NDArray(npmask, device=node.device), requires_grad=False, device=node.device)
+        
+        return mask_tensor * broadcast_to(reshape(out_grad, max_shape), Z.shape)
+    
+def max(a, axis=None, keepdims=False):
+    return Max(axis, keepdims)(a)
+
+
+"""
+LogSumExp 计算梯度的一些思路
+
+# 由于问题等价，所以反向的梯度能不能直接用变型前的公式求？？
+# 答：不行，因为计算反向梯度时，调用的中间值也会存在数值溢出问题
+
+[done-有点小问题]尝试一：使用自己推导的梯度公式(实现 max op with axes)
+[看不懂不看了]尝试二：理解bfsh的那一行代码是什么意思。(不理解)
+[done] 尝试三：needle重构时，把这个算子废除掉，直接用原子op堆出来比较简单。
+"""
 class LogSumExp(TensorOp):
     def __init__(self, axes: Optional[tuple] = None):
         self.axes = axes
@@ -493,115 +554,116 @@ class LogSumExp(TensorOp):
 
     def compute(self, Z):
         ### BEGIN YOUR SOLUTION
-        # print("z shape, axes", Z.shape, self.axes)
-        maxz = array_api.max(Z, axis=self.axes, keepdims=True)
-        # print('maxz', maxz.shape)
-        
-        # 由于needle不能自动broadcast, 这里需要手动操作。 hw2里的numpy 支持 auto broadcast操作
-        sum_exp = array_api.sum(array_api.exp(Z - maxz.broadcast_to(Z.shape)), axis=self.axes, keepdims=True)
-        # print('sum_exp', sum_exp.shape)
+        maxz = Z.max(axis=self.axes, keepdims=True) # NDArray 操作
+        # 由于needle不能自动broadcast, 这里需要手动操作。 注意：hw2里的numpy 支持 auto broadcast操作
+        sum_exp = array_api.exp(Z - maxz.broadcast_to(Z.shape)).sum(axis=self.axes, keepdims=True)
         res = array_api.log(sum_exp) + maxz
-        res.compact()
-        # print('res', res.shape)
         
-        # 对res在self.axes轴上的维度压缩掉。
+        # 把res在self.axes轴上的维度压缩掉。
         if self.axes != None:
             new_shape = []
-            for x in res.shape:
-                if x!=1:
-                    new_shape.append(x)
+            for i in range(len(res.shape)):
+                if i not in self.axes: # 非压缩轴
+                    new_shape.append(res.shape[i])
             res = array_api.reshape(res, new_shape)
         else:
             res = array_api.reshape(res, (1,))
         return res
         ### END YOUR SOLUTION
-
+    
     def gradient(self, out_grad, node):
         ### BEGIN YOUR SOLUTION
         Z = node.inputs[0].detach()
         
-        # 由于问题等价，所以反向的梯度能不能直接用变型前的公式求？？
-        # 答：不行，因为计算反向梯度时，调用的中间值也会存在数值溢出问题
+        # help var
+        npmask, max_shape = calc_numpy_max_mask(self.axes, False, Z.numpy())
+        mask_tensor = Tensor(NDArray(npmask, device=node.device), requires_grad=False, device=node.device)
+        sum_shape = max_shape
+
+        # Part 1： max(Z)部分的梯度计算
+        dz1 = mask_tensor * broadcast_to(reshape(out_grad, sum_shape), Z.shape)
         
-        # broadcast_to 先整理原始轴坐标（由于needle里broadcast实现的缺陷问题）
-        # step1: 因sum操作压缩的轴
-        sum_axes = self.axes
-        if self.axes is None:
-            sum_axes = list(range(len(Z.shape)))
-        # step2: 遵循ndarray底层的思路，先reshape补全因sum操作缺失的shape维度到1，然后broadcast到输入shape
-        ori_sum_shape = list(Z.shape)
-        for ax in sum_axes:
-            ori_sum_shape[ax] = 1
+        # Part 2： LogSumExp(Z-max(Z))部分的梯度计算
+        zmax = max(Z, axis=self.axes, keepdims=True)
+        z_zmax = Z - broadcast_to(zmax, Z.shape)
+        exp_z_zmax = exp(z_zmax)
+        sum_exp_z_zmax = summation(exp_z_zmax, self.axes) # todo ops.sum操作不支持keepdims, 此时已经被压缩
         
-        # 先凑合用一下数值溢出版本，通过测试。(尝试失败，直接计算数值就溢出了)
+        d_log = out_grad / sum_exp_z_zmax
+        d_sum = broadcast_to(reshape(d_log, sum_shape), Z.shape) # sum的梯度=按压缩轴反向展开
+        d_exp = d_sum * exp_z_zmax
         
-        Z = Z - broadcast_to(reshape(node, ori_sum_shape), Z.shape) # 还是不太懂这行操作的意义
+        # dz2有两部分构成
+        dz = d_exp
+        dzmax = -1 * mask_tensor * d_exp 
+        dz2 = dz + dzmax
         
-        exp_z = exp(Z)
-        sum_exp_z = summation(exp_z, self.axes)
-        
-        grad_sum_exp = out_grad * (sum_exp_z**(-1))
-        # print(out_grad.shape, sum_exp_z.shape, grad_sum_exp.shape)
-                
-        input_grad = grad_sum_exp.reshape(ori_sum_shape).broadcast_to(Z.shape) * exp_z
-        # print(Z.shape)
-        # print(exp_z.shape)
-        
-        return input_grad
+        # print("\nops.logsumexp",
+        #       "\nd_log\n", d_log,
+        #       "\nd_sum\n", d_sum,
+        #       "\nd_exp\n", d_exp,
+        #       "\ndz1\n",dz1,
+        #       "\ndz\n",dz,
+        #       "\ndzmax\n",dzmax,
+        #       "\ndz2\n", dz2)
+
+        return dz1 + dz2
         ### END YOUR SOLUTION
-        
-# 参考实现，没看懂那一行
-# class LogSumExp(TensorOp):
+
+# class LogSumExp_old(TensorOp):
 #     def __init__(self, axes: Optional[tuple] = None):
-#         if(isinstance(axes, int)):
+#         self.axes = axes
+#         if isinstance(axes, int):
 #             self.axes = (axes,)
-#         else:
-#             self.axes = axes
 
 #     def compute(self, Z):
 #         ### BEGIN YOUR SOLUTION
-#         y_squeezed = Z.max(axis=self.axes, keepdims=True)
-#         y = array_api.broadcast_to(y_squeezed, Z.shape)
+#         maxz = Z.max(axis=self.axes, keepdims=True) # NDArray 操作
+#         # 由于needle不能自动broadcast, 这里需要手动操作。 注意：hw2里的numpy 支持 auto broadcast操作
+#         sum_exp = array_api.exp(Z - maxz.broadcast_to(Z.shape)).sum(axis=self.axes, keepdims=True)
+#         res = array_api.log(sum_exp) + maxz
         
-#         Z_ = array_api.log(array_api.summation(array_api.exp(Z-y), axis=self.axes, keepdims=True))
-#         # print('Z shape: ', Z_.shape)
-#         # print('y shape: ', y_squeezed.shape)
-#         res = (Z_ + y_squeezed).compact()
+#         # 把res在self.axes轴上的维度压缩掉。
 #         if self.axes != None:
-#             new_axis = list()
-#             for x in res.shape:
-#                 if x != 1:
-#                     new_axis.append(x)
-#             res = array_api.reshape(res, new_axis)
+#             new_shape = []
+#             for i in range(len(res.shape)):
+#                 if i not in self.axes: # 非压缩轴
+#                     new_shape.append(res.shape[i])
+#             res = array_api.reshape(res, new_shape)
+#         else:
+#             res = array_api.reshape(res, (1,))
 #         return res
 #         ### END YOUR SOLUTION
 
 #     def gradient(self, out_grad, node):
 #         ### BEGIN YOUR SOLUTION
-#         Z = node.inputs
-#         if isinstance(Z, tuple):
-#           Z = Z[0]
-#         before_s = Z.shape
-#         s = list(Z.shape)
-#         axis = self.axes
-#         if self.axes == None:
-#           axis = [i for i in range(len(before_s))]
-#         # elif isinstance(self.axes, int):
-#         #     axis = (self.axes,)
-#         # print("axis: ", axis)
-#         for i in axis:
-#           s[i] = 1
-#         s = tuple(s)
-#         Z = Z - broadcast_to(reshape(node,s), before_s) # 还是不太懂这行操作的意义
-#         expz = exp(Z)
+#         Z = node.inputs[0].detach()
         
-#         expsum = broadcast_to(reshape(summation(expz, self.axes),s), before_s)
-#         tmpa = broadcast_to(reshape(out_grad,s), before_s)
-#         tmpb = expz / expsum
-#         res = tmpa * tmpb
-#         return res
+#         # broadcast_to 先整理原始轴坐标（由于needle里broadcast实现的缺陷问题）
+#         # step1: 因sum操作压缩的轴
+#         sum_axes = self.axes
+#         if self.axes is None:
+#             sum_axes = list(range(len(Z.shape)))
+#         # step2: 遵循ndarray底层的思路，先reshape补全因sum操作缺失的shape维度到1，然后broadcast到输入shape
+#         ori_sum_shape = list(Z.shape)
+#         for ax in sum_axes:
+#             ori_sum_shape[ax] = 1
+        
+#         Z = Z - broadcast_to(reshape(node, ori_sum_shape), Z.shape) # 看不懂这行操作的意义
+        
+#         exp_z = exp(Z)
+#         sum_exp_z = summation(exp_z, self.axes)
+        
+#         grad_sum_exp = out_grad * (sum_exp_z**(-1))
+#         # print(out_grad.shape, sum_exp_z.shape, grad_sum_exp.shape)
+                
+#         input_grad = grad_sum_exp.reshape(ori_sum_shape).broadcast_to(Z.shape) * exp_z
+#         # print(Z.shape)
+#         # print(exp_z.shape)
+        
+#         return input_grad
 #         ### END YOUR SOLUTION
-
+        
 def logsumexp(a, axes=None):
     return LogSumExp(axes=axes)(a)
 

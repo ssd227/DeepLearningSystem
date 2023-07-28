@@ -164,18 +164,32 @@ class Sequential(Module):
         return x
         ### END YOUR SOLUTION
 
+class LogSumExp(Module):
+    """
+        数值稳定版本的nn.LogSumExp
+        
+        直接用算子堆出来的模块，不用手动推导公式
+            使用新增的Max算子来保证数值稳定性
+    """
+    def forward(self, Z:Tensor, axis=None, keepdims=False):
+        max_Z = ops.max(Z, axis=axis, keepdims=True)
+        max_Z_broadcast = ops.broadcast_to(max_Z, Z.shape)
+
+        return ops.log(ops.summation(ops.exp(Z-max_Z_broadcast), axes=axis)) + ops.max(Z, axis=axis)
 
 class SoftmaxLoss(Module):
     def forward(self, logits: Tensor, y: Tensor):
         ### BEGIN YOUR SOLUTION
         lse = ops.logsumexp(logits, axes=1)
-        one_hot = init.one_hot(logits.shape[-1], y, device=logits.device)
+        # lse = LogSumExp().forward(logits, axis=1) # 试一试新的模块写法
+        one_hot = init.one_hot(logits.shape[-1], y, device=logits.device) #todo 注意：device
         zy = ops.summation(logits * one_hot, axes=1)
+
         batch_size = logits.shape[0]
         return ops.summation(lse-zy)/batch_size
         ### END YOUR SOLUTION
 
-# todo dim全指的是channel数，和nrom的方向一点关系没有？
+# 这里的dim全指的是channel数，和nrom的方向一点关系没有
 class BatchNorm1d(Module):
     def __init__(self, dim, eps=1e-5, momentum=0.1, device=None, dtype="float32"):
         super().__init__()

@@ -88,8 +88,6 @@ def kaiming_uniform(fan_in, fan_out, shape=None, nonlinearity="relu", **kwargs):
     gain = 2**0.5 # only for relue
     bound = gain * (3/fan_in)**0.5
     # bound = math.sqrt(6.0/float(fan_in)) todo 可以合并公式
-    
-    # TODO 这段代码有问题，shape不一定存在
     if shape==None:
         shape = (fan_in, fan_out)
     return rand(*shape, low=-bound, high=bound, **kwargs)

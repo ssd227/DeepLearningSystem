@@ -161,7 +161,7 @@ class NDArray:
         return self._device
 
     @property
-    def dtype(self):
+    def dtype(self): # 注意数据类型，否则会出很多bug
         # only support float32 for now
         return "float32"
 
@@ -318,7 +318,8 @@ class NDArray:
         if start == None:
             start = 0
         if start < 0:
-            start = self.shape[dim]
+            # start = self.shape[dim] # 感觉有问题
+            start += self.shape[dim] # 修改后
         if stop == None:
             stop = self.shape[dim]
         if stop < 0:
@@ -371,18 +372,18 @@ class NDArray:
                 for i, s in enumerate(idxs)
             ]
         )
-        assert len(idxs) == self.ndim, "Need indexes equal to number of dimensions"
+        assert len(idxs) == self.ndim, f"Need indexes equal to number of dimensions"
 
         ### BEGIN YOUR SOLUTION
         new_shape = list(self._shape)
         new_strides = list(self._strides)
-        new_offset = 0
+        new_offset = self._offset # 原始的偏移量先加上
         
         for i in range(len(idxs)):
           start, stop, step = idxs[i].start, idxs[i].stop, idxs[i].step
-          new_shape[i] = (stop-start-1) // step + 1
-          new_strides[i] = self._strides[i] * step
-          new_offset += self._strides[i] * start
+          new_shape[i] = 1 + ((stop-1)-start) // step   # 收尾数字 + 不包含末位stop-1到start的间隔// step
+          new_strides[i] = self._strides[i] * step      # 原strides上增加跳位 * step， 暂时不支持负值？ (todo：下面的flip已经支持负数strides)
+          new_offset += self._strides[i] * start        # 每个维度的start（s1，s2, s3,...）刻画了首位元素在原矩阵中的偏移量
 
         return NDArray.make(shape=tuple(new_shape),
                     strides=tuple(new_strides),
@@ -433,7 +434,7 @@ class NDArray:
             other, self.device.ewise_add, self.device.scalar_add
         )
 
-    __radd__ = __add__
+    __radd__ = __add__ # 反向＋ = 正向+，不用重新定义。 不太懂python这种 class func的语法
 
     def __sub__(self, other):
         return self + (-other)
@@ -486,7 +487,7 @@ class NDArray:
         return 1 - (self > other)
 
     ### Elementwise functions
-        
+
     def log(self):
         out = NDArray.make(self.shape, device=self.device)
         self.device.ewise_log(self.compact()._handle, out._handle)
@@ -562,17 +563,21 @@ class NDArray:
             raise ValueError("Empty axis in reduce")
 
         if axis is None:
+            # 举个例子:
+            ## ndim = 4
+            ## shape = (1,2,4)
+            ## (1,) * (ndim - 1) + (8,)
+            # out: (1, 1, 1, 8)
             view = self.compact().reshape((1,) * (self.ndim - 1) + (prod(self.shape),))
             out = NDArray.make((1,) * (self.ndim if keepdims else 1), device=self.device)
-
-
+            
         else:
             if isinstance(axis, (tuple, list)):
                 assert len(axis) == 1, "Only support reduction over a single axis"
                 axis = axis[0]
 
             view = self.permute(
-                tuple([a for a in range(self.ndim) if a != axis]) + (axis,)
+                tuple([a for a in range(self.ndim) if a != axis]) + (axis,) # 需要统计的维度换到最后
             )
             out = NDArray.make(
                 tuple([1 if i == axis else s for i, s in enumerate(self.shape)])
@@ -582,29 +587,21 @@ class NDArray:
             )
         return view, out
 
-    # def sum(self, axis=None, keepdims=False):
-    #     view, out = self.reduce_view_out(axis, keepdims=keepdims)
-    #     self.device.reduce_sum(view.compact()._handle, out._handle, view.shape[-1])
-    #     return out
-    
-    # 支持axes操作
     def sum(self, axis=None, keepdims=False):
         res = self
-        if isinstance(axis, (tuple, list)):
+        if isinstance(axis, (tuple, list)): # 新增功能，支持多轴(axes)操作 [丑陋的设计 todo]
             for i in range(len(axis)):
                 if i == len(axis) - 1:
                     view, out = res.reduce_view_out((axis[i],), keepdims=keepdims)
                 else:
                     view, out = res.reduce_view_out((axis[i],), keepdims=True)
-                # print("out shape: ", out.shape)
                 res.device.reduce_sum(view.compact()._handle, out._handle, view.shape[-1])
                 res = out
-                # print("res shape: ", res.shape)
         else:
+            # 单轴(axis)操作
             view, out = self.reduce_view_out(axis, keepdims=keepdims)
             self.device.reduce_sum(view.compact()._handle, out._handle, view.shape[-1])
             return out
-    
         return res
 
     def max(self, axis=None, keepdims=False):
@@ -619,13 +616,20 @@ class NDArray:
         Note: compact() before returning.
         """
         ### BEGIN YOUR SOLUTION
-        compact_array = self.compact()
+        self = self.compact() # 先compact
         new_strides = list(self._strides)
-        offset = self._offset # todo compact和offset有没有关系，目测都是0
+        new_offset = 0 # compact后的默认offset为0
+        
+        # flip公式推导见草稿，待整理到doc [todo] 
         for i in axes:
-            offset += (self.shape[i]-1) * new_strides[i]
-            new_strides[i] *= -1
-        out =  NDArray.make(self.shape, device=self.device, strides= tuple(new_strides), offset=offset, handle=compact_array._handle).compact()
+            new_offset += (self.shape[i]-1) * new_strides[i]
+            new_strides[i] *= -1 # todo 注意:这里允许了负的strides。
+        out =  NDArray.make(self.shape,
+                            device=self.device, 
+                            strides= tuple(new_strides),
+                            offset=new_offset,
+                            handle=self._handle).compact()  #难道不会出什么问题吗？ 
+                                                            # compact用负数strides调用底层的compact [记得之前改过cu和cc的底层compact接口]
         return out
         ### END YOUR SOLUTION
 
@@ -637,13 +641,13 @@ class NDArray:
         axes = ( (0, 0), (1, 1), (0, 0)) pads the middle axis with a 0 on the left and right side.
         """
         ### BEGIN YOUR SOLUTION
-        out_shape = tuple([s + l + r for (l, r), s in zip(axes, self.shape)])
+        out_shape = tuple([axis_size + lp + rp for (lp, rp), axis_size in zip(axes, self.shape)])
         out = NDArray.make(out_shape, device=self.device)
         out.fill(0)
         
         slicing = []
-        for (l, _), s in zip(axes, self.shape):
-            slicing.append(slice(l, l + s))
+        for (lp, _), axis_size in zip(axes, self.shape):
+            slicing.append(slice(lp, lp + axis_size))
         out[tuple(slicing)] = self
         return out
         ### END YOUR SOLUTION
@@ -674,6 +678,11 @@ def broadcast_to(array, new_shape):
 def reshape(array, new_shape):
     return array.reshape(new_shape)
 
+
+def maximum(a, b):
+    return a.maximum(b)
+
+
 def log(a):
     return a.log()
 
@@ -688,15 +697,5 @@ def tanh(a):
 def flip(a, axes):
     return a.flip(axes)
 
-
 def summation(a, axis=None, keepdims=False):
     return a.sum(axis=axis, keepdims=keepdims)
-
-def sum(a, axis=None, keepdims=False):
-    return a.sum(axis=axis, keepdims=keepdims)
-
-def maximum(a, b):
-    return a.maximum(b)
-
-def max(a, axis=None, keepdims=False):
-    return a.max(axis=axis, keepdims=keepdims)
