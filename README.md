@@ -11,12 +11,14 @@
 ---
 
 ## content
-- [X] hw0
-- [X] hw1
-- [X] hw2 （ <adam的测试> 和 <最后的模型训练> 有点小问题。）
-- [X] hw3
-- [X] hw4 (还存在问题)
-- public_notebooks
+- [X] hw0 Introduction [[ipynb]](./hw0/hw0.ipynb)
+- [X] hw1 Automatic Differentiation Framework [[ipynb]](./hw1/hw1.ipynb)
+- [X] hw2 Neural Network Library [[ipynb]](./hw2/hw2.ipynb)
+  - <adam测试> 和 <最后的模型训练> 有点小问题
+- [X] hw3 NDArray library (CPU、GPU backend) [[ipynb]](./hw3/hw3.ipynb)
+- [X] hw4 CNN、RNN (LSTM) from scratch [[ipynb]](./hw4/hw4.ipynb)
+  - 存在训练问题
+- [public_notebooks](./public_notebooks/)
 ---
 
 ## 一些问题
